@@ -35,8 +35,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# Ambil Base URL Spreadsheet dari Secrets
 def get_sheet_url():
+    """Mengambil URL Google Sheets dari Secrets."""
     try:
         url = st.secrets["connections"]["gsheets"]["spreadsheet"]
         return url.split("/edit")[0].rstrip("/")
@@ -72,14 +72,15 @@ def normalize_df(df):
 
 
 def load_database(worksheet_name):
-    """Membaca data langsung dari Google Sheets via CSV Export berdasarkan nama tab."""
+    """Membaca data strictly dari Google Sheets berdasarkan nama tab yang diminta."""
     base_url = get_sheet_url()
     encoded_sheet_name = urllib.parse.quote(worksheet_name)
     export_url = f"{base_url}/gviz/tq?tqx=out:csv&sheet={encoded_sheet_name}"
     
     try:
         df = pd.read_csv(export_url)
-        if df is not None and not df.empty and len(df.columns) > 1:
+        # Jika sheet tidak ada, Google Sheet GViz akan mengembalikan HTML error / tidak memiliki kolom Kode Voucher
+        if df is not None and not df.empty and "Kode Voucher" in df.columns:
             return normalize_df(df), True
         else:
             return pd.DataFrame(), False
@@ -88,7 +89,7 @@ def load_database(worksheet_name):
 
 
 def save_database(df, worksheet_name):
-    """Panduan pembaruan data jika diedit dari web."""
+    """Menyimpan pembaruan data kembali ke Google Sheets."""
     try:
         from streamlit_gsheets import GSheetsConnection
         conn = st.connection("gsheets", type=GSheetsConnection)
@@ -224,10 +225,12 @@ elif page == "🔐 Admin Panel (Database)":
 
         selected_sheet = st.selectbox("📅 Pilih Bulan Database yang Ingin Dilihat:", month_options, index=month_options.index(get_month_sheet_name()))
 
+        # Selalu muat data baru secara bersih untuk bulan yang dipilih
         df_db, sheet_exists = load_database(selected_sheet)
 
         if not sheet_exists or df_db.empty:
-            st.warning(f"⚠️ Tab/Sheet dengan nama **'{selected_sheet}'** belum dibuat atau kosong di Google Sheets.")
+            st.warning(f"⚠️ **Tab/Sheet '{selected_sheet}' belum dibuat atau masih kosong di Google Sheets.**")
+            st.info("💡 **Petunjuk Admin:** Untuk mengaktifkan bulan ini, buka Google Sheets lalu buat tab baru di bagian bawah dengan nama persis **`" + selected_sheet + "`**.")
         else:
             total_vouchers = len(df_db)
             used_vouchers = len(df_db[df_db["Status"].astype(str).str.strip().str.lower() == "terpakai"])
