@@ -66,21 +66,37 @@ def normalize_df(df):
     return df[required_cols]
 
 
-def load_database(worksheet_name):
-    """Membaca data strictly dari worksheet sesuai nama yang dipilih."""
+def load_database_smart(requested_sheet_name):
+    """Membaca data dari Google Sheets dengan toleransi kesalahan nama tab."""
+    # 1. Coba baca berdasarkan nama spesifik
     try:
-        # Membaca KHUSUS worksheet dengan nama tersebut
-        df = conn.read(worksheet=worksheet_name, ttl=0)
-        return normalize_df(df), True
-    except Exception:
-        # Jika sheet tidak ditemukan di Google Sheets
-        empty_df = pd.DataFrame(columns=["Kode Voucher", "Status", "Nama", "Tanggal", "Tujuan", "Waktu Klaim"])
-        return empty_df, False
+        df = conn.read(worksheet=requested_sheet_name, ttl=0)
+        if not df.empty and "Kode Voucher" in df.columns:
+            return normalize_df(df), True, requested_sheet_name, ""
+    except Exception as e:
+        err_msg = str(e)
+
+    # 2. Coba baca sheet pertama (index 0) jika tab requested_sheet_name gagal
+    try:
+        df = conn.read(worksheet=0, ttl=0)
+        if not df.empty and "Kode Voucher" in df.columns:
+            return normalize_df(df), True, "sheet_index_0", "Membaca Sheet Utama (Index 0)"
+    except Exception as e:
+        err_msg = str(e)
+
+    empty_df = pd.DataFrame(columns=["Kode Voucher", "Status", "Nama", "Tanggal", "Tujuan", "Waktu Klaim"])
+    return empty_df, False, None, err_msg
 
 
-def save_database(df, worksheet_name):
-    """Menyimpan pembaruan data kembali ke Google Sheets."""
-    conn.update(worksheet=worksheet_name, data=df)
+def save_database_smart(df, sheet_target):
+    """Menyimpan data ke Google Sheets."""
+    if sheet_target == "sheet_index_0" or not sheet_target:
+        conn.update(worksheet=0, data=df)
+    else:
+        try:
+            conn.update(worksheet=sheet_target, data=df)
+        except Exception:
+            conn.update(worksheet=0, data=df)
 
 
 # Inisialisasi Session State
@@ -153,16 +169,18 @@ if page == "🏠 Ambil Voucher":
         if not nama_input.strip() or not tujuan_input.strip():
             st.warning("⚠️ **Mohon lengkapi Nama Lengkap dan Tujuan Perjalanan terlebih dahulu!**")
         else:
-            df_db, sheet_exists = load_database(worksheet_name=current_month_sheet)
+            df_db, sheet_exists, active_sheet, err_detail = load_database_smart(current_month_sheet)
 
             if not sheet_exists or df_db.empty:
-                st.error(f"🚨 **Mohon Maaf, Voucher Grab Bulan {current_month_sheet} Belum Tersedia / Telah Habis Terpakai.**")
+                st.error("🚨 **Mohon Maaf, Voucher Grab Belum Tersedia / Telah Habis Terpakai.**")
+                if err_detail:
+                    st.caption(f"Debug Info: {err_detail}")
             else:
                 available_mask = df_db["Status"].astype(str).str.strip().str.lower() == "tersedia"
                 available_rows = df_db[available_mask]
 
                 if available_rows.empty:
-                    st.error(f"🚨 **Mohon Maaf, Voucher Grab Bulan {current_month_sheet} Telah Habis Terpakai.**")
+                    st.error("🚨 **Mohon Maaf, Voucher Grab Bulan Ini Telah Habis Terpakai.**")
                 else:
                     target_idx = available_rows.index[0]
                     voucher_code = df_db.at[target_idx, "Kode Voucher"]
@@ -174,7 +192,7 @@ if page == "🏠 Ambil Voucher":
                     df_db.at[target_idx, "Status"] = "Terpakai"
                     df_db.at[target_idx, "Waktu Klaim"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    save_database(df_db, worksheet_name=current_month_sheet)
+                    save_database_smart(df_db, active_sheet)
 
                     # Set Data Dialog
                     st.session_state.claimed_voucher = str(voucher_code)
@@ -210,10 +228,12 @@ elif page == "🔐 Admin Panel (Database)":
 
         selected_sheet = st.selectbox("📅 Pilih Bulan Database yang Ingin Dilihat:", month_options, index=month_options.index(get_month_sheet_name()))
 
-        df_db, sheet_exists = load_database(worksheet_name=selected_sheet)
+        df_db, sheet_exists, active_sheet, err_detail = load_database_smart(selected_sheet)
 
         if not sheet_exists or df_db.empty:
-            st.warning(f"⚠️ Tab/Sheet dengan nama **'{selected_sheet}'** belum dibuat di Google Sheets Anda.")
+            st.warning(f"⚠️ Gagal membaca data dari Google Sheets.")
+            if err_detail:
+                st.error(f"**Detail Error dari Google Sheets:** `{err_detail}`")
         else:
             total_vouchers = len(df_db)
             used_vouchers = len(df_db[df_db["Status"].astype(str).str.strip().str.lower() == "terpakai"])
@@ -229,4 +249,5 @@ elif page == "🔐 Admin Panel (Database)":
             st.write(f"### Data Pemakaian Voucher — {selected_sheet}")
             st.dataframe(df_db, use_container_width=True)
 
-        st.info("💡 **Tips Admin:** Jika memilih bulan baru (misal `September 2026`), pastikan Anda sudah membuat Tab/Sheet baru bernama `September 2026` di Google Sheets.")
+            if active_sheet == "sheet_index_0":
+                st.caption("ℹ️ *Catatan: Menampilkan data dari sheet pertama karena nama tab spesifik belum cocok.*")
