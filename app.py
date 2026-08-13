@@ -67,19 +67,27 @@ def normalize_df(df):
 
 
 def load_database(worksheet_name):
-    """Membaca data dari worksheet spesifik di Google Sheets."""
+    """Membaca data dari worksheet spesifik dengan sistem pencarian otomatis."""
     try:
+        # Coba baca berdasarkan nama sheet spesifik (misal: 'Agustus 2026')
         df = conn.read(worksheet=worksheet_name, ttl=0)
-        return normalize_df(df), True
+        return normalize_df(df), True, worksheet_name
     except Exception:
-        # Jika sheet bulan tersebut belum dibuat di Google Sheets
-        empty_df = pd.DataFrame(columns=["Kode Voucher", "Status", "Nama", "Tanggal", "Tujuan", "Waktu Klaim"])
-        return empty_df, False
+        try:
+            # Fallback otomatis ke sheet pertama jika nama sheet spesifik tidak ditemukan
+            df = conn.read(worksheet=0, ttl=0)
+            return normalize_df(df), True, "sheet_pertama"
+        except Exception:
+            empty_df = pd.DataFrame(columns=["Kode Voucher", "Status", "Nama", "Tanggal", "Tujuan", "Waktu Klaim"])
+            return empty_df, False, None
 
 
-def save_database(df, worksheet_name):
-    """Menyimpan pembaruan data ke sheet bulan berjalan."""
-    conn.update(worksheet=worksheet_name, data=df)
+def save_database(df, worksheet_name, target_sheet_type):
+    """Menyimpan pembaruan data kembali ke Google Sheets."""
+    if target_sheet_type == "sheet_pertama":
+        conn.update(worksheet=0, data=df)
+    else:
+        conn.update(worksheet=worksheet_name, data=df)
 
 
 # Inisialisasi Session State
@@ -135,10 +143,10 @@ st.title("🟢 Klaim Voucher Grab Tim CIK MH")
 page = st.sidebar.radio("Navigasi", ["🏠 Ambil Voucher", "🔐 Admin Panel (Database)"])
 
 
-# HALAMAN 1: AMBIL VOUCHER (OTOMATIS SESUAI BULAN INI)
+# HALAMAN 1: AMBIL VOUCHER
 if page == "🏠 Ambil Voucher":
     current_month_sheet = get_month_sheet_name()
-    st.subheader(f"Form Pengambilan Voucher — Bulan {current_month_sheet}")
+    st.subheader(f"Form Pengambilan Voucher — {current_month_sheet}")
     st.write("Silakan isi data diri dan keperluan perjalanan Anda di bawah ini:")
 
     with st.form(key="voucher_form", clear_on_submit=True):
@@ -152,29 +160,28 @@ if page == "🏠 Ambil Voucher":
         if not nama_input.strip() or not tujuan_input.strip():
             st.warning("⚠️ **Mohon lengkapi Nama Lengkap dan Tujuan Perjalanan terlebih dahulu!**")
         else:
-            # Mengambil data HANYA dari sheet bulan berjalan
-            df_db, sheet_exists = load_database(worksheet_name=current_month_sheet)
+            df_db, sheet_exists, sheet_type = load_database(worksheet_name=current_month_sheet)
 
             if not sheet_exists or df_db.empty:
-                st.error(f"🚨 **Mohon Maaf, Voucher Grab Bulan {current_month_sheet} Belum Tersedia / Telah Habis Terpakai.**")
+                st.error("🚨 **Mohon Maaf, Voucher Grab Belum Tersedia / Telah Habis Terpakai.**")
             else:
                 available_mask = df_db["Status"].astype(str).str.strip().str.lower() == "tersedia"
                 available_rows = df_db[available_mask]
 
                 if available_rows.empty:
-                    st.error(f"🚨 **Mohon Maaf, Voucher Grab Bulan {current_month_sheet} Telah Habis Terpakai.**")
+                    st.error("🚨 **Mohon Maaf, Voucher Grab Bulan Ini Telah Habis Terpakai.**")
                 else:
                     target_idx = available_rows.index[0]
                     voucher_code = df_db.at[target_idx, "Kode Voucher"]
 
-                    # Update ke Google Sheets di sheet bulan berjalan
+                    # Update ke Google Sheets
                     df_db.at[target_idx, "Nama"] = nama_input.strip()
                     df_db.at[target_idx, "Tanggal"] = tanggal_input.strftime("%Y-%m-%d")
                     df_db.at[target_idx, "Tujuan"] = tujuan_input.strip()
                     df_db.at[target_idx, "Status"] = "Terpakai"
                     df_db.at[target_idx, "Waktu Klaim"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    save_database(df_db, worksheet_name=current_month_sheet)
+                    save_database(df_db, worksheet_name=current_month_sheet, target_sheet_type=sheet_type)
 
                     # Set Data Dialog
                     st.session_state.claimed_voucher = str(voucher_code)
@@ -201,19 +208,18 @@ elif page == "🔐 Admin Panel (Database)":
             st.session_state.admin_logged_in = False
             st.rerun()
 
-        # Generate daftar bulan untuk dropdown Admin
         today = datetime.date.today()
         month_options = []
-        for i in range(-3, 6):  # Menampilkan 3 bulan ke belakang hingga 5 bulan ke depan
+        for i in range(-3, 6):
             m_date = today.replace(day=1) + datetime.timedelta(days=i*31)
             month_options.append(get_month_sheet_name(m_date))
-        month_options = list(dict.fromkeys(month_options)) # Hapus duplikat
+        month_options = list(dict.fromkeys(month_options))
 
         selected_sheet = st.selectbox("📅 Pilih Bulan Database yang Ingin Dilihat:", month_options, index=month_options.index(get_month_sheet_name()))
 
-        df_db, sheet_exists = load_database(worksheet_name=selected_sheet)
+        df_db, sheet_exists, sheet_type = load_database(worksheet_name=selected_sheet)
 
-        if not sheet_exists:
+        if not sheet_exists or df_db.empty:
             st.warning(f"⚠️ Tab/Sheet dengan nama **'{selected_sheet}'** belum dibuat di Google Sheets Anda.")
         else:
             total_vouchers = len(df_db)
@@ -230,4 +236,4 @@ elif page == "🔐 Admin Panel (Database)":
             st.write(f"### Data Pemakaian Voucher — {selected_sheet}")
             st.dataframe(df_db, use_container_width=True)
 
-        st.info("💡 **Tips Admin:** Setiap pergantian bulan (misal awal bulan September), buat Tab/Sheet baru di Google Sheets bernama `September 2026` dan masukkan daftar voucher barunya.")
+        st.info("💡 **Status Sistem:** Terhubung ke Google Sheets. Data tersimpan permanen secara otomatis.")
