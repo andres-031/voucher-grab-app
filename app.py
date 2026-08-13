@@ -90,19 +90,13 @@ def save_database(df):
     df.to_excel(EXCEL_FILE, index=False)
 
 
-# Inisialisasi Session State untuk Form & Dialog
+# Inisialisasi Session State
 if "dialog_stage" not in st.session_state:
     st.session_state.dialog_stage = None
 if "claimed_voucher" not in st.session_state:
     st.session_state.claimed_voucher = ""
 if "admin_logged_in" not in st.session_state:
     st.session_state.admin_logged_in = False
-
-# Inisialisasi Kunci Form Input agar Bisa Direset
-if "input_nama" not in st.session_state:
-    st.session_state.input_nama = ""
-if "input_tujuan" not in st.session_state:
-    st.session_state.input_tujuan = ""
 
 
 # Dialog / Pop-up Voucher Dua Tahap
@@ -154,48 +148,44 @@ if page == "🏠 Ambil Voucher":
     st.subheader("Form Pengambilan Voucher")
     st.write("Silakan isi data diri dan keperluan perjalanan Anda di bawah ini:")
 
-    # Widget Input Menggunakan key Session State
-    nama_val = st.text_input("1. Nama Lengkap", key="input_nama", placeholder="Masukkan nama Anda...")
-    tanggal_val = st.date_input("2. Tanggal Pemakaian", value=datetime.date.today())
-    tujuan_val = st.text_input("3. Tujuan Perjalanan", key="input_tujuan", placeholder="Contoh: Kantor Cabang / Kunjungan Client...")
+    # Penggunaan st.form dengan clear_on_submit=True untuk MERESET otomatis input saat diklik
+    with st.form(key="voucher_form", clear_on_submit=True):
+        nama_input = st.text_input("1. Nama Lengkap", placeholder="Masukkan nama Anda...")
+        tanggal_input = st.date_input("2. Tanggal Pemakaian", value=datetime.date.today())
+        tujuan_input = st.text_input("3. Tujuan Perjalanan", placeholder="Contoh: Kantor Cabang / Kunjungan Client...")
 
-    is_form_valid = bool(nama_val.strip() and tujuan_val.strip() and tanggal_val)
+        submit_btn = st.form_submit_button("🎟️ Ambil Voucher", type="primary", use_container_width=True)
 
-    st.markdown("---")
-
-    if not is_form_valid:
-        st.info("💡 *Tombol 'Ambil Voucher' akan aktif setelah Nama dan Tujuan terisi.*")
-
-    if st.button("🎟️ Ambil Voucher", type="primary", disabled=not is_form_valid, use_container_width=True):
-        df_db = load_database()
-
-        available_mask = df_db["Status"].astype(str).str.strip().str.lower() == "tersedia"
-        available_rows = df_db[available_mask]
-
-        if available_rows.empty:
-            st.error("🚨 **Mohon Maaf, Voucher Grab Bulan Ini Telah Habis Terpakai.**")
+    if submit_btn:
+        # Validasi Form
+        if not nama_input.strip() or not tujuan_input.strip():
+            st.warning("⚠️ **Mohon lengkapi Nama Lengkap dan Tujuan Perjalanan terlebih dahulu!**")
         else:
-            target_idx = available_rows.index[0]
-            voucher_code = df_db.at[target_idx, "Kode Voucher"]
+            df_db = load_database()
 
-            # Update ke Excel Database
-            df_db.at[target_idx, "Nama"] = nama_val.strip()
-            df_db.at[target_idx, "Tanggal"] = tanggal_val.strftime("%Y-%m-%d")
-            df_db.at[target_idx, "Tujuan"] = tujuan_val.strip()
-            df_db.at[target_idx, "Status"] = "Terpakai"
-            df_db.at[target_idx, "Waktu Klaim"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            available_mask = df_db["Status"].astype(str).str.strip().str.lower() == "tersedia"
+            available_rows = df_db[available_mask]
 
-            save_database(df_db)
+            if available_rows.empty:
+                st.error("🚨 **Mohon Maaf, Voucher Grab Bulan Ini Telah Habis Terpakai.**")
+            else:
+                target_idx = available_rows.index[0]
+                voucher_code = df_db.at[target_idx, "Kode Voucher"]
 
-            # Set data untuk Pop-up
-            st.session_state.claimed_voucher = str(voucher_code)
-            st.session_state.dialog_stage = "show_code"
+                # Update Database
+                df_db.at[target_idx, "Nama"] = nama_input.strip()
+                df_db.at[target_idx, "Tanggal"] = tanggal_input.strftime("%Y-%m-%d")
+                df_db.at[target_idx, "Tujuan"] = tujuan_input.strip()
+                df_db.at[target_idx, "Status"] = "Terpakai"
+                df_db.at[target_idx, "Waktu Klaim"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # MERESET/MENGOSONGKAN INPUT FORM
-            st.session_state.input_nama = ""
-            st.session_state.input_tujuan = ""
+                save_database(df_db)
 
-            st.rerun()
+                # Panggil Pop-up Dialog
+                st.session_state.claimed_voucher = str(voucher_code)
+                st.session_state.dialog_stage = "show_code"
+
+                st.rerun()
 
 
 # HALAMAN 2: ADMIN PANEL
