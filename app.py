@@ -4,7 +4,6 @@ import streamlit as st
 import requests
 import json
 import urllib.parse
-from streamlit_gsheets import GSheetsConnection
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
@@ -38,10 +37,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# Inisialisasi Koneksi Google Sheets
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-
 def get_sheet_url():
     """Mengambil URL Google Sheets dari Secrets."""
     try:
@@ -49,6 +44,14 @@ def get_sheet_url():
         return url.split("/edit")[0].rstrip("/")
     except Exception:
         return "https://docs.google.com/spreadsheets/d/1deXN-5IWuMfH9AIcPLdjPSTqtDEPkn49V9oS70q5OxU"
+
+
+def get_script_url():
+    """Mengambil URL Apps Script Web App dari Secrets."""
+    try:
+        return st.secrets["connections"]["gsheets"]["script_url"]
+    except Exception:
+        return ""
 
 
 def get_month_sheet_name(date_obj=None):
@@ -106,18 +109,33 @@ def load_database(worksheet_name):
         return pd.DataFrame(), False
 
 
-def save_database(df, worksheet_name):
-    """Menyimpan pembaruan data kembali ke Google Sheets secara langsung."""
+def save_voucher_claim(sheet_name, voucher_code, nama, tanggal, tujuan, waktu_klaim):
+    """Mengirim data klaim ke Google Sheets via Google Apps Script Web App."""
+    script_url = get_script_url()
+    if not script_url:
+        return False, "URL Apps Script (script_url) belum diatur di Secrets Streamlit."
+        
+    payload = {
+        "sheetName": sheet_name,
+        "voucherCode": str(voucher_code),
+        "nama": nama,
+        "tanggal": tanggal,
+        "tujuan": tujuan,
+        "waktuKlaim": waktu_klaim
+    }
+    
     try:
-        conn.update(worksheet=worksheet_name, data=df)
-        return True, ""
+        res = requests.post(script_url, json=payload, timeout=10)
+        if res.status_code == 200:
+            res_json = res.json()
+            if res_json.get("status") == "success":
+                return True, ""
+            else:
+                return False, res_json.get("message", "Gagal memperbarui sheet.")
+        else:
+            return False, f"Server merespons status code {res.status_code}"
     except Exception as e:
-        # Percobaan kedua tanpa parameter nama jika gagal
-        try:
-            conn.update(data=df)
-            return True, ""
-        except Exception as e2:
-            return False, str(e2)
+        return False, str(e)
 
 
 # Inisialisasi Session State
@@ -203,18 +221,20 @@ if page == "🏠 Ambil Voucher":
                 else:
                     target_idx = available_rows.index[0]
                     voucher_code = df_db.at[target_idx, "Kode Voucher"]
+                    tgl_str = tanggal_input.strftime("%Y-%m-%d")
+                    waktu_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # Update ke Google Sheets
-                    df_db.at[target_idx, "Nama"] = nama_input.strip()
-                    df_db.at[target_idx, "Tanggal"] = tanggal_input.strftime("%Y-%m-%d")
-                    df_db.at[target_idx, "Tujuan"] = tujuan_input.strip()
-                    df_db.at[target_idx, "Status"] = "Terpakai"
-                    df_db.at[target_idx, "Waktu Klaim"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                    save_success, err_save = save_database(df_db, current_month_sheet)
+                    # Kirim klaim via Apps Script
+                    save_success, err_save = save_voucher_claim(
+                        sheet_name=current_month_sheet,
+                        voucher_code=voucher_code,
+                        nama=nama_input.strip(),
+                        tanggal=tgl_str,
+                        tujuan=tujuan_input.strip(),
+                        waktu_klaim=waktu_str
+                    )
 
                     if save_success:
-                        # Set Data Dialog jika berhasil disimpan
                         st.session_state.claimed_voucher = str(voucher_code)
                         st.session_state.dialog_stage = "show_code"
                         st.rerun()
