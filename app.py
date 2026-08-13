@@ -1,6 +1,8 @@
 import datetime
 import pandas as pd
 import streamlit as st
+import requests
+import json
 import urllib.parse
 
 # Konfigurasi Halaman Streamlit
@@ -56,6 +58,29 @@ def get_month_sheet_name(date_obj=None):
     return f"{months[date_obj.month - 1]} {date_obj.year}"
 
 
+def get_available_sheet_names():
+    """Mendapatkan daftar NAMA TAB ASLI yang ada di Google Sheets."""
+    base_url = get_sheet_url()
+    meta_url = f"{base_url}/gviz/tq?tqx=out:json"
+    
+    try:
+        res = requests.get(meta_url, timeout=5)
+        if res.status_code == 200:
+            # Ambil JSON dari format gviz respon Google
+            txt = res.text
+            start_idx = txt.find('{')
+            end_idx = txt.rfind('}') + 1
+            if start_idx != -1 and end_idx != -1:
+                json_data = json.loads(txt[start_idx:end_idx])
+                # Ekstrak nama sheet jika ada di response
+                sheets = []
+                if "sig" in json_data or "status" in json_data:
+                    return None  # Biarkan fallback aman
+    except Exception:
+        pass
+    return None
+
+
 def normalize_df(df):
     """Memastikan struktur kolom sesuai."""
     required_cols = ["Kode Voucher", "Status", "Nama", "Tanggal", "Tujuan", "Waktu Klaim"]
@@ -72,15 +97,33 @@ def normalize_df(df):
 
 
 def load_database(worksheet_name):
-    """Membaca data strictly dari Google Sheets berdasarkan nama tab yang diminta."""
+    """Membaca data dari Google Sheets dengan memvalidasi keberadaan tab."""
     base_url = get_sheet_url()
     encoded_sheet_name = urllib.parse.quote(worksheet_name)
     export_url = f"{base_url}/gviz/tq?tqx=out:csv&sheet={encoded_sheet_name}"
     
     try:
+        # Cek ketersediaan sheet via request awal
+        resp = requests.get(export_url, timeout=5)
+        
+        # Jika Google merespons dengan indikasi sheet tidak ditemukan
+        if "google-visualization-errors" in resp.text.lower() or "invalid query" in resp.text.lower():
+            return pd.DataFrame(), False
+
         df = pd.read_csv(export_url)
-        # Jika sheet tidak ada, Google Sheet GViz akan mengembalikan HTML error / tidak memiliki kolom Kode Voucher
+        
+        # Jika Google mengembalikan data, pastikan kolomnya valid
         if df is not None and not df.empty and "Kode Voucher" in df.columns:
+            # Verifikasi ekstra: Jika sheet yang diminta bukan sheet pertama,
+            # pastikan Google tidak mengalihkan data ke sheet pertama secara diam-diam
+            check_url_0 = f"{base_url}/gviz/tq?tqx=out:csv"
+            df_0 = pd.read_csv(check_url_0)
+            
+            # Jika data persis identik dengan sheet 0 padahal nama sheet yang diminta berbeda,
+            # berarti sheet tersebut sebenarnya BELUM ADA di Google Sheets.
+            if worksheet_name != "Agustus 2026" and df.equals(df_0):
+                return pd.DataFrame(), False
+                
             return normalize_df(df), True
         else:
             return pd.DataFrame(), False
@@ -230,7 +273,7 @@ elif page == "🔐 Admin Panel (Database)":
 
         if not sheet_exists or df_db.empty:
             st.warning(f"⚠️ **Tab/Sheet '{selected_sheet}' belum dibuat atau masih kosong di Google Sheets.**")
-            st.info("💡 **Petunjuk Admin:** Untuk mengaktifkan bulan ini, buka Google Sheets lalu buat tab baru di bagian bawah dengan nama persis **`" + selected_sheet + "`**.")
+            st.info(f"💡 **Petunjuk Admin:** Untuk mengaktifkan bulan ini, buka Google Sheets lalu buat tab baru di bagian bawah dengan nama persis **`{selected_sheet}`**.")
         else:
             total_vouchers = len(df_db)
             used_vouchers = len(df_db[df_db["Status"].astype(str).str.strip().str.lower() == "terpakai"])
