@@ -7,7 +7,7 @@ import urllib.parse
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
-    page_title="Generators Voucher Grab - Tim CIK MH",
+    page_title="Generators Voucher Grab Tim CIK MH",
     page_icon="🎫",
     layout="centered"
 )
