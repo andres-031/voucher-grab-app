@@ -90,17 +90,19 @@ def save_database(df):
     df.to_excel(EXCEL_FILE, index=False)
 
 
-# Inisialisasi Session State
+# Inisialisasi Session State untuk Form & Dialog
 if "dialog_stage" not in st.session_state:
     st.session_state.dialog_stage = None
 if "claimed_voucher" not in st.session_state:
     st.session_state.claimed_voucher = ""
-if "form_nama" not in st.session_state:
-    st.session_state.form_nama = ""
-if "form_tujuan" not in st.session_state:
-    st.session_state.form_tujuan = ""
 if "admin_logged_in" not in st.session_state:
     st.session_state.admin_logged_in = False
+
+# Inisialisasi Kunci Form Input agar Bisa Direset
+if "input_nama" not in st.session_state:
+    st.session_state.input_nama = ""
+if "input_tujuan" not in st.session_state:
+    st.session_state.input_tujuan = ""
 
 
 # Dialog / Pop-up Voucher Dua Tahap
@@ -152,14 +154,12 @@ if page == "🏠 Ambil Voucher":
     st.subheader("Form Pengambilan Voucher")
     st.write("Silakan isi data diri dan keperluan perjalanan Anda di bawah ini:")
 
-    nama_input = st.text_input("1. Nama Lengkap", value=st.session_state.form_nama, placeholder="Masukkan nama Anda...")
-    tanggal_input = st.date_input("2. Tanggal Pemakaian", value=datetime.date.today())
-    tujuan_input = st.text_input("3. Tujuan Perjalanan", value=st.session_state.form_tujuan, placeholder="Contoh: Kantor Cabang / Kunjungan Client...")
+    # Widget Input Menggunakan key Session State
+    nama_val = st.text_input("1. Nama Lengkap", key="input_nama", placeholder="Masukkan nama Anda...")
+    tanggal_val = st.date_input("2. Tanggal Pemakaian", value=datetime.date.today())
+    tujuan_val = st.text_input("3. Tujuan Perjalanan", key="input_tujuan", placeholder="Contoh: Kantor Cabang / Kunjungan Client...")
 
-    st.session_state.form_nama = nama_input
-    st.session_state.form_tujuan = tujuan_input
-
-    is_form_valid = bool(nama_input.strip() and tujuan_input.strip() and tanggal_input)
+    is_form_valid = bool(nama_val.strip() and tujuan_val.strip() and tanggal_val)
 
     st.markdown("---")
 
@@ -178,19 +178,22 @@ if page == "🏠 Ambil Voucher":
             target_idx = available_rows.index[0]
             voucher_code = df_db.at[target_idx, "Kode Voucher"]
 
-            df_db.at[target_idx, "Nama"] = nama_input.strip()
-            df_db.at[target_idx, "Tanggal"] = tanggal_input.strftime("%Y-%m-%d")
-            df_db.at[target_idx, "Tujuan"] = tujuan_input.strip()
+            # Update ke Excel Database
+            df_db.at[target_idx, "Nama"] = nama_val.strip()
+            df_db.at[target_idx, "Tanggal"] = tanggal_val.strftime("%Y-%m-%d")
+            df_db.at[target_idx, "Tujuan"] = tujuan_val.strip()
             df_db.at[target_idx, "Status"] = "Terpakai"
             df_db.at[target_idx, "Waktu Klaim"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             save_database(df_db)
 
+            # Set data untuk Pop-up
             st.session_state.claimed_voucher = str(voucher_code)
             st.session_state.dialog_stage = "show_code"
 
-            st.session_state.form_nama = ""
-            st.session_state.form_tujuan = ""
+            # MERESET/MENGOSONGKAN INPUT FORM
+            st.session_state.input_nama = ""
+            st.session_state.input_tujuan = ""
 
             st.rerun()
 
@@ -252,7 +255,6 @@ elif page == "🔐 Admin Panel (Database)":
                     normalized_new_df = normalize_df(new_df)
 
                     st.write("Preview Data Baru:")
-                    # Menampilkan seluruh baris tanpa batas .head(5)
                     st.dataframe(normalized_new_df, use_container_width=True)
 
                     if st.button("⚠️ Gantikan Database Sekarang", type="primary"):
