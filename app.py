@@ -5,9 +5,9 @@ import requests
 import json
 import urllib.parse
 
-# Konfigurasi Halaman Streamlit
+# Konfigurasi Halaman Streamlit (Judul Tab Browser)
 st.set_page_config(
-    page_title="Generators Voucher Grab Tim CIK MH",
+    page_title="Generators Voucher Grab - Tim CIK MH",
     page_icon="🎫",
     layout="centered"
 )
@@ -189,8 +189,13 @@ if st.session_state.dialog_stage in ["show_code", "confirm_close"]:
     render_voucher_dialog()
 
 
-# Navigation Bar
-st.title("🟢 Klaim Voucher Grab Tim CIK MH")
+# Navigation Bar & Judul Utama Rapi (1 Baris Utuh)
+st.markdown("""
+    <h2 style='text-align: left; color: #1E1E1E; font-weight: bold; margin-bottom: 25px; font-size: 26px;'>
+        🟢 Klaim Voucher Grab — Tim CIK MH
+    </h2>
+""", unsafe_allow_html=True)
+
 page = st.sidebar.radio("Navigasi", ["🏠 Ambil Voucher", "🔐 Admin Panel (Database)"])
 
 
@@ -210,7 +215,6 @@ if page == "🏠 Ambil Voucher":
         if not nama_input.strip() or not tujuan_input.strip():
             st.warning("⚠️ **Mohon lengkapi Nama Lengkap dan Tujuan Perjalanan terlebih dahulu!**")
         else:
-            # FORMAT OTOMATIS: Mengubah teks menjadi Kapital di Setiap Kata (Title Case)
             nama_formatted = nama_input.strip().title()
             tujuan_formatted = tujuan_input.strip().title()
 
@@ -231,7 +235,6 @@ if page == "🏠 Ambil Voucher":
                     tgl_str = tanggal_input.strftime("%Y-%m-%d")
                     waktu_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # Kirim data rapi ke Google Sheets
                     save_success, err_save = save_voucher_claim(
                         sheet_name=target_month_sheet,
                         voucher_code=voucher_code,
