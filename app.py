@@ -4,6 +4,7 @@ import streamlit as st
 import requests
 import json
 import urllib.parse
+from streamlit_gsheets import GSheetsConnection
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
@@ -37,6 +38,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# Inisialisasi Koneksi Google Sheets
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+
 def get_sheet_url():
     """Mengambil URL Google Sheets dari Secrets."""
     try:
@@ -56,29 +61,6 @@ def get_month_sheet_name(date_obj=None):
         "Juli", "Agustus", "September", "Oktober", "November", "Desember"
     ]
     return f"{months[date_obj.month - 1]} {date_obj.year}"
-
-
-def get_available_sheet_names():
-    """Mendapatkan daftar NAMA TAB ASLI yang ada di Google Sheets."""
-    base_url = get_sheet_url()
-    meta_url = f"{base_url}/gviz/tq?tqx=out:json"
-    
-    try:
-        res = requests.get(meta_url, timeout=5)
-        if res.status_code == 200:
-            # Ambil JSON dari format gviz respon Google
-            txt = res.text
-            start_idx = txt.find('{')
-            end_idx = txt.rfind('}') + 1
-            if start_idx != -1 and end_idx != -1:
-                json_data = json.loads(txt[start_idx:end_idx])
-                # Ekstrak nama sheet jika ada di response
-                sheets = []
-                if "sig" in json_data or "status" in json_data:
-                    return None  # Biarkan fallback aman
-    except Exception:
-        pass
-    return None
 
 
 def normalize_df(df):
@@ -103,24 +85,17 @@ def load_database(worksheet_name):
     export_url = f"{base_url}/gviz/tq?tqx=out:csv&sheet={encoded_sheet_name}"
     
     try:
-        # Cek ketersediaan sheet via request awal
         resp = requests.get(export_url, timeout=5)
         
-        # Jika Google merespons dengan indikasi sheet tidak ditemukan
         if "google-visualization-errors" in resp.text.lower() or "invalid query" in resp.text.lower():
             return pd.DataFrame(), False
 
         df = pd.read_csv(export_url)
         
-        # Jika Google mengembalikan data, pastikan kolomnya valid
         if df is not None and not df.empty and "Kode Voucher" in df.columns:
-            # Verifikasi ekstra: Jika sheet yang diminta bukan sheet pertama,
-            # pastikan Google tidak mengalihkan data ke sheet pertama secara diam-diam
             check_url_0 = f"{base_url}/gviz/tq?tqx=out:csv"
             df_0 = pd.read_csv(check_url_0)
             
-            # Jika data persis identik dengan sheet 0 padahal nama sheet yang diminta berbeda,
-            # berarti sheet tersebut sebenarnya BELUM ADA di Google Sheets.
             if worksheet_name != "Agustus 2026" and df.equals(df_0):
                 return pd.DataFrame(), False
                 
@@ -132,13 +107,17 @@ def load_database(worksheet_name):
 
 
 def save_database(df, worksheet_name):
-    """Menyimpan pembaruan data kembali ke Google Sheets."""
+    """Menyimpan pembaruan data kembali ke Google Sheets secara langsung."""
     try:
-        from streamlit_gsheets import GSheetsConnection
-        conn = st.connection("gsheets", type=GSheetsConnection)
         conn.update(worksheet=worksheet_name, data=df)
-    except Exception:
-        pass
+        return True, ""
+    except Exception as e:
+        # Percobaan kedua tanpa parameter nama jika gagal
+        try:
+            conn.update(data=df)
+            return True, ""
+        except Exception as e2:
+            return False, str(e2)
 
 
 # Inisialisasi Session State
@@ -232,13 +211,15 @@ if page == "🏠 Ambil Voucher":
                     df_db.at[target_idx, "Status"] = "Terpakai"
                     df_db.at[target_idx, "Waktu Klaim"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    save_database(df_db, current_month_sheet)
+                    save_success, err_save = save_database(df_db, current_month_sheet)
 
-                    # Set Data Dialog
-                    st.session_state.claimed_voucher = str(voucher_code)
-                    st.session_state.dialog_stage = "show_code"
-
-                    st.rerun()
+                    if save_success:
+                        # Set Data Dialog jika berhasil disimpan
+                        st.session_state.claimed_voucher = str(voucher_code)
+                        st.session_state.dialog_stage = "show_code"
+                        st.rerun()
+                    else:
+                        st.error(f"🚨 **Gagal memperbarui Google Sheets.** Detail: `{err_save}`")
 
 
 # HALAMAN 2: ADMIN PANEL
@@ -268,7 +249,6 @@ elif page == "🔐 Admin Panel (Database)":
 
         selected_sheet = st.selectbox("📅 Pilih Bulan Database yang Ingin Dilihat:", month_options, index=month_options.index(get_month_sheet_name()))
 
-        # Selalu muat data baru secara bersih untuk bulan yang dipilih
         df_db, sheet_exists = load_database(selected_sheet)
 
         if not sheet_exists or df_db.empty:
