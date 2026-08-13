@@ -38,7 +38,7 @@ st.markdown("""
 
 
 def normalize_df(df):
-    """Memastikan struktur kolom Excel sesuai dan bertipe data Teks (string)."""
+    """Memastikan struktur kolom Excel sesuai dan bertipe data string."""
     column_mapping = {
         'kode': 'Kode Voucher',
         'voucher': 'Kode Voucher',
@@ -57,25 +57,14 @@ def normalize_df(df):
             
     df["Status"] = df["Status"].fillna("Tersedia").replace("", "Tersedia")
     
-    # PERBAIKAN: Ubah semua kolom menjadi tipe string agar tidak terbentur TypeError Pandas
     for col in required_cols:
         df[col] = df[col].astype(str).replace("nan", "").replace("None", "")
         
     return df[required_cols]
-    
-    df.columns = [column_mapping.get(str(col).lower().strip(), col) for col in df.columns]
-
-    required_cols = ["Kode Voucher", "Status", "Nama", "Tanggal", "Tujuan", "Waktu Klaim"]
-    for col in required_cols:
-        if col not in df.columns:
-            df[col] = ""
-            
-    df["Status"] = df["Status"].fillna("Tersedia").replace("", "Tersedia")
-    return df[required_cols]
 
 
 def load_database():
-    """Membaca file database Excel lokal atau membuat file default jika belum ada."""
+    """Membaca file database Excel lokal."""
     if os.path.exists(EXCEL_FILE):
         try:
             df = pd.read_excel(EXCEL_FILE)
@@ -83,7 +72,6 @@ def load_database():
         except Exception:
             pass
 
-    # Buat sampel database jika file belum ditemukan
     sample_data = {
         "Kode Voucher": [f"GRAB-CMH-{i:03d}" for i in range(1, 11)],
         "Status": ["Tersedia"] * 10,
@@ -150,12 +138,11 @@ def render_voucher_dialog():
                 st.rerun()
 
 
-# Render Pop-up Check
 if st.session_state.dialog_stage in ["show_code", "confirm_close"]:
     render_voucher_dialog()
 
 
-# Navigation Bar / Menu Utama
+# Navigation Bar
 st.title("🟢 Klaim Voucher Grab Tim CIK MH")
 page = st.sidebar.radio("Navigasi", ["🏠 Ambil Voucher", "🔐 Admin Panel (Database)"])
 
@@ -265,7 +252,8 @@ elif page == "🔐 Admin Panel (Database)":
                     normalized_new_df = normalize_df(new_df)
 
                     st.write("Preview Data Baru:")
-                    st.dataframe(normalized_new_df.head(5), use_container_width=True)
+                    # Menampilkan seluruh baris tanpa batas .head(5)
+                    st.dataframe(normalized_new_df, use_container_width=True)
 
                     if st.button("⚠️ Gantikan Database Sekarang", type="primary"):
                         save_database(normalized_new_df)
