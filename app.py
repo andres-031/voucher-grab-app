@@ -38,7 +38,7 @@ st.markdown("""
 
 
 def normalize_df(df):
-    """Memastikan struktur kolom Excel sesuai dengan yang dibutuhkan aplikasi."""
+    """Memastikan struktur kolom Excel sesuai dan bertipe data Teks (string)."""
     column_mapping = {
         'kode': 'Kode Voucher',
         'voucher': 'Kode Voucher',
@@ -47,6 +47,21 @@ def normalize_df(df):
         'tanggal': 'Tanggal',
         'tujuan': 'Tujuan'
     }
+    
+    df.columns = [column_mapping.get(str(col).lower().strip(), col) for col in df.columns]
+
+    required_cols = ["Kode Voucher", "Status", "Nama", "Tanggal", "Tujuan", "Waktu Klaim"]
+    for col in required_cols:
+        if col not in df.columns:
+            df[col] = ""
+            
+    df["Status"] = df["Status"].fillna("Tersedia").replace("", "Tersedia")
+    
+    # PERBAIKAN: Ubah semua kolom menjadi tipe string agar tidak terbentur TypeError Pandas
+    for col in required_cols:
+        df[col] = df[col].astype(str).replace("nan", "").replace("None", "")
+        
+    return df[required_cols]
     
     df.columns = [column_mapping.get(str(col).lower().strip(), col) for col in df.columns]
 
