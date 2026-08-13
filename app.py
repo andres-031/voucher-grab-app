@@ -1,7 +1,7 @@
 import datetime
 import pandas as pd
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
+import urllib.parse
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(
@@ -35,8 +35,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# Inisialisasi Koneksi Google Sheets
-conn = st.connection("gsheets", type=GSheetsConnection)
+# Ambil Base URL Spreadsheet dari Secrets
+def get_sheet_url():
+    try:
+        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        return url.split("/edit")[0].rstrip("/")
+    except Exception:
+        return "https://docs.google.com/spreadsheets/d/1deXN-5IWuMfH9AIcPLdjPSTqtDEPkn49V9oS70q5OxU"
 
 
 def get_month_sheet_name(date_obj=None):
@@ -67,20 +72,29 @@ def normalize_df(df):
 
 
 def load_database(worksheet_name):
-    """Membaca data strictly berdasarkan nama sheet yang diminta."""
+    """Membaca data langsung dari Google Sheets via CSV Export berdasarkan nama tab."""
+    base_url = get_sheet_url()
+    encoded_sheet_name = urllib.parse.quote(worksheet_name)
+    export_url = f"{base_url}/gviz/tq?tqx=out:csv&sheet={encoded_sheet_name}"
+    
     try:
-        df = conn.read(worksheet=worksheet_name, ttl=0)
-        if df is not None and not df.empty:
-            return normalize_df(df), True, ""
+        df = pd.read_csv(export_url)
+        if df is not None and not df.empty and len(df.columns) > 1:
+            return normalize_df(df), True
         else:
-            return pd.DataFrame(), False, f"Sheet '{worksheet_name}' kosong."
-    except Exception as e:
-        return pd.DataFrame(), False, str(e)
+            return pd.DataFrame(), False
+    except Exception:
+        return pd.DataFrame(), False
 
 
 def save_database(df, worksheet_name):
-    """Menyimpan data langsung ke sheet sesuai nama bulan."""
-    conn.update(worksheet=worksheet_name, data=df)
+    """Panduan pembaruan data jika diedit dari web."""
+    try:
+        from streamlit_gsheets import GSheetsConnection
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        conn.update(worksheet=worksheet_name, data=df)
+    except Exception:
+        pass
 
 
 # Inisialisasi Session State
@@ -153,9 +167,9 @@ if page == "🏠 Ambil Voucher":
         if not nama_input.strip() or not tujuan_input.strip():
             st.warning("⚠️ **Mohon lengkapi Nama Lengkap dan Tujuan Perjalanan terlebih dahulu!**")
         else:
-            df_db, sheet_exists, err_msg = load_database(current_month_sheet)
+            df_db, sheet_exists = load_database(current_month_sheet)
 
-            if not sheet_exists:
+            if not sheet_exists or df_db.empty:
                 st.error(f"🚨 **Mohon Maaf, Tab/Sheet '{current_month_sheet}' Belum Tersedia di Google Sheets.**")
             else:
                 available_mask = df_db["Status"].astype(str).str.strip().str.lower() == "tersedia"
@@ -210,10 +224,10 @@ elif page == "🔐 Admin Panel (Database)":
 
         selected_sheet = st.selectbox("📅 Pilih Bulan Database yang Ingin Dilihat:", month_options, index=month_options.index(get_month_sheet_name()))
 
-        df_db, sheet_exists, err_msg = load_database(selected_sheet)
+        df_db, sheet_exists = load_database(selected_sheet)
 
-        if not sheet_exists:
-            st.warning(f"⚠️ Tab/Sheet dengan nama **'{selected_sheet}'** tidak ditemukan atau belum dibuat di Google Sheets.")
+        if not sheet_exists or df_db.empty:
+            st.warning(f"⚠️ Tab/Sheet dengan nama **'{selected_sheet}'** belum dibuat atau kosong di Google Sheets.")
         else:
             total_vouchers = len(df_db)
             used_vouchers = len(df_db[df_db["Status"].astype(str).str.strip().str.lower() == "terpakai"])
