@@ -67,27 +67,20 @@ def normalize_df(df):
 
 
 def load_database(worksheet_name):
-    """Membaca data dari worksheet spesifik dengan sistem pencarian otomatis."""
+    """Membaca data strictly dari worksheet sesuai nama yang dipilih."""
     try:
-        # Coba baca berdasarkan nama sheet spesifik (misal: 'Agustus 2026')
+        # Membaca KHUSUS worksheet dengan nama tersebut
         df = conn.read(worksheet=worksheet_name, ttl=0)
-        return normalize_df(df), True, worksheet_name
+        return normalize_df(df), True
     except Exception:
-        try:
-            # Fallback otomatis ke sheet pertama jika nama sheet spesifik tidak ditemukan
-            df = conn.read(worksheet=0, ttl=0)
-            return normalize_df(df), True, "sheet_pertama"
-        except Exception:
-            empty_df = pd.DataFrame(columns=["Kode Voucher", "Status", "Nama", "Tanggal", "Tujuan", "Waktu Klaim"])
-            return empty_df, False, None
+        # Jika sheet tidak ditemukan di Google Sheets
+        empty_df = pd.DataFrame(columns=["Kode Voucher", "Status", "Nama", "Tanggal", "Tujuan", "Waktu Klaim"])
+        return empty_df, False
 
 
-def save_database(df, worksheet_name, target_sheet_type):
+def save_database(df, worksheet_name):
     """Menyimpan pembaruan data kembali ke Google Sheets."""
-    if target_sheet_type == "sheet_pertama":
-        conn.update(worksheet=0, data=df)
-    else:
-        conn.update(worksheet=worksheet_name, data=df)
+    conn.update(worksheet=worksheet_name, data=df)
 
 
 # Inisialisasi Session State
@@ -160,16 +153,16 @@ if page == "🏠 Ambil Voucher":
         if not nama_input.strip() or not tujuan_input.strip():
             st.warning("⚠️ **Mohon lengkapi Nama Lengkap dan Tujuan Perjalanan terlebih dahulu!**")
         else:
-            df_db, sheet_exists, sheet_type = load_database(worksheet_name=current_month_sheet)
+            df_db, sheet_exists = load_database(worksheet_name=current_month_sheet)
 
             if not sheet_exists or df_db.empty:
-                st.error("🚨 **Mohon Maaf, Voucher Grab Belum Tersedia / Telah Habis Terpakai.**")
+                st.error(f"🚨 **Mohon Maaf, Voucher Grab Bulan {current_month_sheet} Belum Tersedia / Telah Habis Terpakai.**")
             else:
                 available_mask = df_db["Status"].astype(str).str.strip().str.lower() == "tersedia"
                 available_rows = df_db[available_mask]
 
                 if available_rows.empty:
-                    st.error("🚨 **Mohon Maaf, Voucher Grab Bulan Ini Telah Habis Terpakai.**")
+                    st.error(f"🚨 **Mohon Maaf, Voucher Grab Bulan {current_month_sheet} Telah Habis Terpakai.**")
                 else:
                     target_idx = available_rows.index[0]
                     voucher_code = df_db.at[target_idx, "Kode Voucher"]
@@ -181,7 +174,7 @@ if page == "🏠 Ambil Voucher":
                     df_db.at[target_idx, "Status"] = "Terpakai"
                     df_db.at[target_idx, "Waktu Klaim"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    save_database(df_db, worksheet_name=current_month_sheet, target_sheet_type=sheet_type)
+                    save_database(df_db, worksheet_name=current_month_sheet)
 
                     # Set Data Dialog
                     st.session_state.claimed_voucher = str(voucher_code)
@@ -217,7 +210,7 @@ elif page == "🔐 Admin Panel (Database)":
 
         selected_sheet = st.selectbox("📅 Pilih Bulan Database yang Ingin Dilihat:", month_options, index=month_options.index(get_month_sheet_name()))
 
-        df_db, sheet_exists, sheet_type = load_database(worksheet_name=selected_sheet)
+        df_db, sheet_exists = load_database(worksheet_name=selected_sheet)
 
         if not sheet_exists or df_db.empty:
             st.warning(f"⚠️ Tab/Sheet dengan nama **'{selected_sheet}'** belum dibuat di Google Sheets Anda.")
@@ -236,4 +229,4 @@ elif page == "🔐 Admin Panel (Database)":
             st.write(f"### Data Pemakaian Voucher — {selected_sheet}")
             st.dataframe(df_db, use_container_width=True)
 
-        st.info("💡 **Status Sistem:** Terhubung ke Google Sheets. Data tersimpan permanen secara otomatis.")
+        st.info("💡 **Tips Admin:** Jika memilih bulan baru (misal `September 2026`), pastikan Anda sudah membuat Tab/Sheet baru bernama `September 2026` di Google Sheets.")
