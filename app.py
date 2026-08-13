@@ -181,7 +181,6 @@ def render_voucher_dialog():
             if st.button("✅ Ya, Sudah Disimpan", type="primary", use_container_width=True):
                 st.session_state.claimed_voucher = ""
                 st.session_state.dialog_stage = None
-                # Memaksa reset form input di halaman utama
                 st.session_state.form_key_id += 1
                 st.rerun()
 
@@ -200,7 +199,6 @@ if page == "🏠 Ambil Voucher":
     st.subheader("Form Pengambilan Voucher")
     st.write("Silakan isi data diri dan keperluan perjalanan Anda di bawah ini:")
 
-    # Menggunakan key dinamis agar form otomatis ter-reset bersih setelah selesai
     with st.form(key=f"voucher_form_{st.session_state.form_key_id}", clear_on_submit=False):
         nama_input = st.text_input("1. Nama Lengkap", placeholder="Masukkan nama Anda...")
         tanggal_input = st.date_input("2. Tanggal Pemakaian", value=datetime.date.today())
@@ -212,6 +210,10 @@ if page == "🏠 Ambil Voucher":
         if not nama_input.strip() or not tujuan_input.strip():
             st.warning("⚠️ **Mohon lengkapi Nama Lengkap dan Tujuan Perjalanan terlebih dahulu!**")
         else:
+            # FORMAT OTOMATIS: Mengubah teks menjadi Kapital di Setiap Kata (Title Case)
+            nama_formatted = nama_input.strip().title()
+            tujuan_formatted = tujuan_input.strip().title()
+
             target_month_sheet = get_month_sheet_name(tanggal_input)
             df_db, sheet_exists = load_database(target_month_sheet)
 
@@ -229,13 +231,13 @@ if page == "🏠 Ambil Voucher":
                     tgl_str = tanggal_input.strftime("%Y-%m-%d")
                     waktu_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # Kirim klaim ke Google Sheets
+                    # Kirim data rapi ke Google Sheets
                     save_success, err_save = save_voucher_claim(
                         sheet_name=target_month_sheet,
                         voucher_code=voucher_code,
-                        nama=nama_input.strip(),
+                        nama=nama_formatted,
                         tanggal=tgl_str,
-                        tujuan=tujuan_input.strip(),
+                        tujuan=tujuan_formatted,
                         waktu_klaim=waktu_str
                     )
 
