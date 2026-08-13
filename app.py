@@ -55,7 +55,7 @@ def get_script_url():
 
 
 def get_month_sheet_name(date_obj=None):
-    """Menghasilkan format nama sheet bulanan, misal: 'Agustus 2026'."""
+    """Menghasilkan format nama sheet bulanan berdasarkan objek tanggal, misal: 'September 2026'."""
     if date_obj is None:
         date_obj = datetime.date.today()
         
@@ -99,6 +99,7 @@ def load_database(worksheet_name):
             check_url_0 = f"{base_url}/gviz/tq?tqx=out:csv"
             df_0 = pd.read_csv(check_url_0)
             
+            # Validasi jika nama tab yang diminta bukan tab pertama tapi datanya sama dengan tab pertama
             if worksheet_name != "Agustus 2026" and df.equals(df_0):
                 return pd.DataFrame(), False
                 
@@ -193,11 +194,10 @@ page = st.sidebar.radio("Navigasi", ["🏠 Ambil Voucher", "🔐 Admin Panel (Da
 
 # HALAMAN 1: AMBIL VOUCHER
 if page == "🏠 Ambil Voucher":
-    current_month_sheet = get_month_sheet_name()
-    st.subheader(f"Form Pengambilan Voucher — {current_month_sheet}")
+    st.subheader("Form Pengambilan Voucher")
     st.write("Silakan isi data diri dan keperluan perjalanan Anda di bawah ini:")
 
-    with st.form(key="voucher_form", clear_on_submit=True):
+    with st.form(key="voucher_form", clear_on_submit=False):
         nama_input = st.text_input("1. Nama Lengkap", placeholder="Masukkan nama Anda...")
         tanggal_input = st.date_input("2. Tanggal Pemakaian", value=datetime.date.today())
         tujuan_input = st.text_input("3. Tujuan Perjalanan", placeholder="Contoh: Kantor Cabang / Kunjungan Client...")
@@ -208,25 +208,28 @@ if page == "🏠 Ambil Voucher":
         if not nama_input.strip() or not tujuan_input.strip():
             st.warning("⚠️ **Mohon lengkapi Nama Lengkap dan Tujuan Perjalanan terlebih dahulu!**")
         else:
-            df_db, sheet_exists = load_database(current_month_sheet)
+            # PENTING: Dapatkan nama sheet dinamis berdasarkan TANGGAL PEMAKAIAN yang dipilih user
+            target_month_sheet = get_month_sheet_name(tanggal_input)
+            
+            df_db, sheet_exists = load_database(target_month_sheet)
 
             if not sheet_exists or df_db.empty:
-                st.error(f"🚨 **Mohon Maaf, Tab/Sheet '{current_month_sheet}' Belum Tersedia di Google Sheets.**")
+                st.error(f"🚨 **Mohon Maaf, Tab/Sheet Database '{target_month_sheet}' Belum Tersedia di Google Sheets.**")
             else:
                 available_mask = df_db["Status"].astype(str).str.strip().str.lower() == "tersedia"
                 available_rows = df_db[available_mask]
 
                 if available_rows.empty:
-                    st.error(f"🚨 **Mohon Maaf, Voucher Grab Bulan {current_month_sheet} Telah Habis Terpakai.**")
+                    st.error(f"🚨 **Mohon Maaf, Voucher Grab untuk Bulan {target_month_sheet} Telah Habis Terpakai.**")
                 else:
                     target_idx = available_rows.index[0]
                     voucher_code = df_db.at[target_idx, "Kode Voucher"]
                     tgl_str = tanggal_input.strftime("%Y-%m-%d")
                     waktu_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # Kirim klaim via Apps Script
+                    # Kirim klaim ke tab bulan yang sesuai via Apps Script
                     save_success, err_save = save_voucher_claim(
-                        sheet_name=current_month_sheet,
+                        sheet_name=target_month_sheet,
                         voucher_code=voucher_code,
                         nama=nama_input.strip(),
                         tanggal=tgl_str,
